@@ -1,0 +1,35 @@
+run_name: pilot_single_node
+paths:
+  tiles_dir: /data/tiles
+  anns_coco: /data/anns/coco_objectness.json
+  pdf_pairs: /data/pairs/domain1/pairs.jsonl
+  out_dir: ./runs/pilot
+clip:
+  model_name: ViT-B-16
+  pretrained: laion2b_s34b_b88k
+  ckpt: ckpts/clip/clip_ep5.pt
+proposer:
+  type: detectron2   # detectron2 | detr | sam | rpn
+  d2_ckpt: ckpts/d2/model_final.pth
+  d2_cfg: COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml
+  detr_ckpt: facebook/detr-resnet-50
+  sam_type: vit_h
+  sam_ckpt: /path/to/sam_vit_h_4b8939.pth
+  obj_score: 0.10
+  nms_iou: 0.5
+ov:
+  prompts: ["ship", "airplane", "helicopter"]
+  use_visual_prototypes: false
+  prototype_folder: null
+index:
+  build: true
+  use_gpu: true
+  out_path: ./runs/pilot/faiss.index
+eval:
+  do_coco: true
+  do_open_vocab: true
+  iou_thresh: 0.5
+  prompt_to_cat: { ship: 1, airplane: 2 }
+runtime:
+  gpus_per_node: 10
+  precision: bf16
