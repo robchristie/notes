@@ -1,0 +1,33 @@
+run_name: pilot_with_synth_automerge
+paths:
+  tiles_dir: /data/tiles
+  anns_coco: /data/anns/real_train.json
+  out_dir: ./runs/pilot_automerge
+clip:
+  model_name: ViT-B-16
+  pretrained: laion2b_s34b_b88k
+  ckpt: ckpts/clip/clip_ep5.pt
+proposer:
+  type: detectron2   # detectron2 | detr | sam
+  d2_ckpt: ckpts/d2/model_final.pth
+  d2_cfg: COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml
+  detr_ckpt: facebook/detr-resnet-50
+  sam_type: vit_h
+  sam_ckpt: /path/to/sam_vit_h_4b8939.pth
+  obj_score: 0.10
+ov:
+  prompts: ["ship", "airplane", "helicopter"]
+sensor_adapter:
+  enable: true
+  init: pca
+  sample_glob: /data/tiles/*.tif
+  robust_low: 2
+  robust_high: 98
+data:
+  auto_merge:
+    real_json: /data/anns/real_train.json
+    synth:
+      - { name: ship, json: runs/synth/ship_inpaint/coco/instances_ship.json, images_root: runs/synth/ship_inpaint/filtered/imgs }
+      - { name: airplane, json: runs/synth/airplane_inpaint/coco/instances_airplane.json, images_root: runs/synth/airplane_inpaint/filtered/imgs }
+    synth_frac: 0.30
+    out_json: /data/anns/merged_train.json

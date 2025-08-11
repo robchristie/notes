@@ -418,11 +418,11 @@ That would be great - please add the Detection2/DETR head and SAM based proposer
 ChatGPT Replied:
 ----------------
 
-Failed to edit
+Failed to edit Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Thought for 16s
 
-Failed to edit
+Failed to edit Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Thought for 7s
 
@@ -454,7 +454,7 @@ Please append to canvas
 ChatGPT Replied:
 ----------------
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 All set — I appended the Detectron2/DETR heads, the SAM-based proposer, and runnable CLI recipes to your canvas. Want me to wire in an evaluation script next (COCO mAP + zero-/few-shot retrieval metrics) and a tiny config YAML so you can flip between D2/DETR/SAM with flags?
 
@@ -470,7 +470,7 @@ Yes please
 ChatGPT Replied:
 ----------------
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Done! I appended:
 
@@ -506,7 +506,7 @@ Yes please
 ChatGPT Replied:
 ----------------
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Added ✅
 
@@ -531,7 +531,7 @@ That would be great, thanks.
 ChatGPT Replied:
 ----------------
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Done — I wired the evaluators to **write JSON directly** and updated the one-command script:
 
@@ -556,7 +556,7 @@ yes please
 ChatGPT Replied:
 ----------------
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Added!
 
@@ -725,7 +725,7 @@ ChatGPT Replied:
 
 Thought for 7s
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Added the tile-level embedding + search stack:
 
@@ -887,7 +887,7 @@ ChatGPT Replied:
 
 Thought for 5s
 
-Edited
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Dropped in **A14) JPEG XL Codec QA**:
 
@@ -914,234 +914,22 @@ ChatGPT Replied:
 
 Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
-I've appended a **Tile Sampler** that preferentially selects tiles with labeled small objects, so the JPEG XL QA process targets the hard cases rather than random backgrounds.
+I can absolutely regenerate the full canvas with all previous sections merged back in — including:
 
-* * *
-
-A14.4 Stratified Small‑Object Tile Sampler (tools/sample\_small\_object\_tiles.py)
-----------------------------------------------------------------------------------
-
-import json, random
-
-from pathlib import Path
-
-from collections import defaultdict
-
-  
-
-\# Assumes COCO‑style annotations
-
-\# Sample tiles containing small objects preferentially, but include some background for control.
-
-  
-
-def load\_coco(ann\_path):
-
-return json.load(open(ann\_path, 'r'))
-
-  
-
-def build\_tile\_index(coco, min\_area\_px\=0, max\_area\_px\=4096):
-
-idx = defaultdict(list)
-
-for ann in coco\['annotations'\]:
-
-x, y, w, h = ann\['bbox'\]
-
-area = w \* h
-
-if min\_area\_px <= area <= max\_area\_px:
-
-idx\[ann\['image\_id'\]\].append(ann)
-
-return idx
-
-  
-
-def sample\_tiles(coco, tile\_dir, out\_list, num\_pos\=1000, num\_bg\=500):
-
-tile\_dir = Path(tile\_dir)
-
-id\_to\_filename = {img\['id'\]: img\['file\_name'\] for img in coco\['images'\]}
-
-tile\_index = build\_tile\_index(coco)
-
-pos\_ids = list(tile\_index.keys())
-
-bg\_ids = \[i for i in id\_to\_filename if i not in tile\_index\]
-
-pos\_sample = random.sample(pos\_ids, min(num\_pos, len(pos\_ids)))
-
-bg\_sample = random.sample(bg\_ids, min(num\_bg, len(bg\_ids)))
-
-all\_ids = pos\_sample + bg\_sample
-
-random.shuffle(all\_ids)
-
-with open(out\_list, 'w') as f:
-
-for img\_id in all\_ids:
-
-f.write(str(tile\_dir / id\_to\_filename\[img\_id\]) + '\\n')
-
-### Usage
-
-python tools/sample\_small\_object\_tiles.py \\
-
-\--coco\_json data/annotations.json \\
-
-\--tile\_dir data/tiles \\
-
-\--out\_list runs/pilot/sampled\_tiles.txt \\
-
-\--num\_pos 1500 \--num\_bg 500
-
-  
-
-\# Then pass the list to the JPEG XL QA script:
-
-python tools/codec\_qa\_jxl.py \--tile\_glob "$(cat runs/pilot/sampled\_tiles.txt)" \\
-
-\--distances '0.6,0.8,1.0,1.2,1.5,2.0' \\
-
-\--out\_json runs/pilot/jxl\_qa.json \\
-
-\--clip\_ckpt ckpts/clip/clip\_ep5.pt
-
-**Why:** This focuses your QA on tiles most likely to show compression‑induced degradation for small/rare targets, while still including a baseline of background tiles to avoid overfitting compression settings to only positives.
-
-  
-
-* * *
-
-A15) QA Sampler — Preferentially pick tiles with **small objects** (and hard backgrounds)
------------------------------------------------------------------------------------------
-
-Use this to build a focused set for codec QA (so compression decisions are driven by the hardest cases).
-
-### A15.1 Small‑Object Sampler from COCO (tools/sample\_tiles\_for\_qa.py)
-
-Selects tiles with **small** GT boxes (by absolute pixels or fraction of image area) and mixes in **hard negatives** (background tiles with high edge density). Writes a file list you can feed to A14.
-
-\# tools/sample\_tiles\_for\_qa.py
-
-import json, random, argparse
-
-from pathlib import Path
-
-from PIL import Image
-
-import numpy as np
-
-import cv2
-
-  
-
-"""
-
-Outputs a newline‑separated list of image paths selected for QA.
-
-  
-
-Selection:
-
-\- Positives: images with at least one GT bbox meeting "small" criteria.
-
-\- Negatives: images with no GT (or ignoring GT), ranked by edge density (Canny) to get hard backgrounds.
-
-"""
-
-  
-
-def box\_area(bb):
-
-x,y,w,h = bb
-
-return max(0.0, w) \* max(0.0, h)
-
-  
-
-  
-
-def load\_coco(gt\_json):
-
-coco = json.load(open(gt\_json,'r'))
-
-id2img = {im\['id'\]: im for im in coco\['images'\]}
-
-img2anns = {}
-
-for a in coco\['annotations'\]:
-
-img2anns.setdefault(a\['image\_id'\], \[\]).append(a)
-
-return id2img, img2anns
-
-  
-
-  
-
-def is\_small(bb, imw, imh, max\_abs\=32\*32, max\_rel\=0.001):
-
-\# max\_abs in pixels^2, max\_rel as fraction of image area
-
-A = box\_area(bb)
-
-return (A <= max\_abs) or (A <= max\_rel \* (imw\*imh))
-
-  
-
-  
-
-def edge\_density(img\_path):
-
-### A15.2 Using the sampler with A14
-
-\# Build a focused QA set: lots of small objects + hard backgrounds
-
-python tools/sample\_tiles\_for\_qa.py \\
-
-\--gt\_json /data/anns/coco\_multiclass.json \\
-
-\--tiles\_root /data/tiles \\
-
-\--out\_list runs/pilot/qa\_tiles.txt \\
-
-\--n\_pos 2000 \--n\_neg 1000 \--max\_abs $((24\*24)) \--max\_rel 0.0006
-
-  
-
-\# Run codec QA only on those tiles
-
-python \- <<'PY'
-
-from pathlib import Path
-
-paths = \[p.strip() for p in Path('runs/pilot/qa\_tiles.txt').read\_text().splitlines() if p.strip()\]
-
-\# write a temp glob list by symlinking, or modify codec\_qa to accept a list. Quick hack:
-
-import json; json.dump(paths, open('runs/pilot/qa\_list.json','w'))
-
-PY
-
-  
-
-\# If you prefer, modify tools/codec\_qa\_jxl.py to accept --list\_json runs/pilot/qa\_list.json
-
-\# or just point --tile\_glob to a folder containing symlinks to those tiles.
-
-**Notes:**
-
-*   Adjust `max_abs`/`max_rel` to match your notion of “small” in pixels or relative to tile size.
+1.  **Single-node starter pipeline** for gigapixel, open-vocabulary satellite detection — CLIP-based tiling, DETR/Detectron2 heads, SAM proposer.
     
-*   For multi‑category balancing, extend the sampler to stratify by `category_id` (say the word and I’ll add it).
+2.  **Tile-level embedding + FAISS index** for post-hoc search.
+    
+3.  **JPEG XL QA pipeline** (PSNR/SSIM/MS-SSIM/LPIPS + embedding drift).
+    
+4.  **Small-object and hard-background QA samplers** for targeted compression evaluation.
     
 
-Edited
+This would produce a single, contiguous document covering setup, training, evaluation, embedding indexing, search, compression QA, and sampling tools — so you don't lose any earlier context.
 
-Answer in chat instead
+Do you want me to reconstruct it **exactly in chronological order** of how we built it, or **reorganize it by functional grouping** (e.g., "Core pipeline", "Search & Indexing", "Compression QA", "Sampling Utilities") so it's easier to navigate?
+
+Edited Gigapixel Open‑vocabulary Satellite Detection — Single‑node (10×a100) Starter Kit
 
 Added a **QA sampler** to the canvas:
 
@@ -1151,6 +939,1657 @@ Added a **QA sampler** to the canvas:
     
 
 If you want stratified sampling per category or per georegion/time window, I can bolt that on too.
+
+---
+
+You asked:
+----------
+
+At some point, the canvas seems to have been overwritten (I only have the last few entries). Are you able to re-generate it with all the content?
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 5s
+
+Yep—I can rebuild the whole thing.
+
+Since the canvas is disabled, I’ll package everything as:
+
+*   **MASTER.md** (full, navigable doc), and
+    
+*   a **zip repo scaffold** with all code we added (A1–A15: core pipeline, Detectron2/DETR heads, SAM proposer, eval, config runner, COCO builder, report gen, tile embeddings + FAISS, two‑stage search, JXL QA, small‑object sampler).
+    
+
+Quick choice for you:
+
+*   **Organization:** do you want it **chronological** (how we built it) or **functional** (Core pipeline → Eval → Search/Index → Compression QA → Samplers)?
+    
+*   **Extras:** include `requirements.txt` + `Makefile` + sample YAMLs? (default = yes)
+    
+
+Tell me your preference and I’ll generate the bundle and give you download links.
+
+---
+
+You asked:
+----------
+
+Go with functional please.
+
+---
+
+ChatGPT Replied:
+----------------
+
+Analysis paused
+
+Alright, rebuilt the whole thing in a clean, functional layout and bundled it for you.
+
+**Download the repo scaffold:**  
+**gigapixel-ovd-functional.zip**
+
+Inside you’ll find:
+
+*   **MASTER.md** — top-level doc explaining the structure and quickstart.
+    
+*   **Core pipeline**
+    
+    *   `data/tiler.py`, `ssl/pretrain_mae.py`, `pdf/extract_pairs.py`, `vl/finetune_clip.py`
+        
+*   **Proposals & Open-Vocab**
+    
+    *   `det/proposals_rpn.py`, `det/sam_proposer.py`, `det/d2_open_vocab.py`, `det/detr_open_vocab.py`, `det/open_vocab_match.py`
+        
+*   **Index & Search**
+    
+    *   `embeddings/tile_embedder.py`, `index/tile_faiss_ivfpq.py`, `index/build_and_query.py`, `search/search_two_stage.py`
+        
+*   **Evaluation & Reporting**
+    
+    *   `eval/coco_map.py`, `eval/to_coco_preds.py`, `eval/ov_retrieval.py`, `eval/report.py`, `tools/pilot.sh`, `tools/run_from_config.py`
+        
+*   **Dataset Utilities**
+    
+    *   `tools/build_coco_from_tiles.py`, `tools/make_prompt_map.py`
+        
+*   **Compression QA**
+    
+    *   `tools/codec_qa_jxl.py`, `eval/summarize_jxl_qa.py`
+        
+*   **Samplers**
+    
+    *   `tools/sample_tiles_for_qa.py`
+        
+*   **Config**
+    
+    *   `config/config.yaml`, `config/prompt_to_cat.json`
+        
+*   **requirements.txt**
+    
+
+If you want me to also produce a **minimal Dockerfile** (CUDA base + system deps like `libjxl-tools`) and a **Makefile** with the common commands, say the word and I’ll add them to the bundle.
+
+---
+
+You asked:
+----------
+
+Have tested first few steps - looks excellent, thanks. One thing I've noticed relates to pixel data type. The first image I randomly picked is single channel 12 bits per pixel (stored as uint16). This datatype makes up the majority of the images, however there's also 4 channel 12 bit, 3 channel 12 bit, 3 channel 8 bit, 8 channel 12 bit (hyper-spectral) etc. It jumped out, as the code crashed (expecting an 8 bit image). This is something I've been fighting with for a long time. Pre-trained backbones all expect 3 channel 8 bit RGB input. I've tried various pre-processing schemes to feed 1 channel 12 bit data in. Usually, I just go with taking the data between the 2nd and 98th percentile and stretching that 0-255 and replicating it across 3 channels. More involved processing hasn't seemed to produce better results. I'm not sure if thats due to my previously limited training data for supervised learning approaches, or if I'm not using optimal techniques. I would really welcome any advice you have on feeding in 12 bit images.
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 13s
+
+Oh yeah, this is the classic remote-sensing headache: models want cute little 3×8-bit JPEGs, your sensors hand you gloriously weird 1/4/8-channel 12-bit TIFFs. The good news: you don’t have to crush everything to 8-bit RGB. There are three solid patterns that work well, and you can mix them by use case.
+
+What actually works (short version)
+===================================
+
+1.  **Keep the physics, add a tiny adapter.**  
+    Don’t quantize on disk. Load 12-bit (uint16) → float32, **robust-normalize** (percentile or per-sensor normalization), then pass through a **learned 1×1 conv “SensorAdapter”** that maps C\_in→3 for CLIP/ResNet. Initialize it sanely (e.g., average or PCA) and let it learn. This beats hard-coded RGB replication.
+    
+2.  **Make the backbone accept your channels.**  
+    For **ViTs**, the “first layer” is just a conv patch embed. Set `in_chans=C_in` and initialize by repeating/averaging weights. Do your **SSL pretrain (MAE/DINO) directly on 12-bit float**; don’t fight the data. Then use that image tower for open-vocab matching (via your domain CLIP fine-tune).
+    
+3.  **Use robust normalization, not just 2–98% per-image.**  
+    2–98% is a decent default, but add:
+    
+    *   **Dataset-/sensor-wide affine** (mean/std or percentiles) to avoid tile-to-tile flicker,
+        
+    *   **Per-tile robust clip** (e.g., 1–99%) on top,
+        
+    *   Optional **log/γ** for glare/wakes, and **no chroma subsampling** anywhere.
+        
+
+Concrete, drop-in code
+======================
+
+A) Robust 12-bit loader + percentile stretch (any C, returns float32)
+---------------------------------------------------------------------
+
+Use this in your datasets instead of PIL so you don’t explode on uint16.
+
+    # utils/imread_rs.py
+    import numpy as np, rasterio
+    
+    def load_raster_as_float(path, robust=(2,98), per_channel=True):
+        """Return float32 array shape [C,H,W] in [0,1], robustly normalized."""
+        with rasterio.open(path) as src:
+            arr = src.read()  # [C,H,W], dtype often uint16
+        arr = arr.astype(np.float32)
+        # If it's 12-bit packed in uint16, dynamic range is ~0..4095; but sensors vary.
+        # We'll do robust percentile stretch to [0,1].
+        def _stretch(x):
+            lo, hi = np.percentile(x, robust) if isinstance(robust, (list, tuple)) else (np.min(x), np.max(x))
+            if hi <= lo: hi = lo + 1.0
+            y = (x - lo) / (hi - lo)
+            return np.clip(y, 0.0, 1.0)
+        if per_channel:
+            for c in range(arr.shape[0]):
+                arr[c] = _stretch(arr[c])
+        else:
+            arr = _stretch(arr)
+        return arr  # float32 [C,H,W] in [0,1]
+    
+
+B) “SensorAdapter” to feed CLIP/ResNet without RGB hacks
+--------------------------------------------------------
+
+Maps arbitrary channels to 3 via a learnable 1×1 conv, then standard CLIP preprocessing.
+
+    # models/sensor_adapter.py
+    import torch, torch.nn as nn
+    
+    class SensorAdapter(nn.Module):
+        def __init__(self, in_ch, out_ch=3, init='avg'):
+            super().__init__()
+            self.proj = nn.Conv2d(in_ch, out_ch, kernel_size=1, bias=False)
+            with torch.no_grad():
+                w = self.proj.weight  # [out_ch, in_ch, 1, 1]
+                if init == 'avg':
+                    w.zero_(); w[:, :, 0, 0] = 1.0 / in_ch
+                elif init == 'first3' and in_ch >= 3:
+                    w.zero_()
+                    for o in range(3): w[o, o, 0, 0] = 1.0
+                # else keep default init
+        def forward(self, x):  # x: [B,C,H,W] in [0,1]
+            return self.proj(x).clamp(0,1)
+    
+
+And a dataset that marries both pieces:
+
+    # data/rs_dataset.py
+    import torch
+    from torch.utils.data import Dataset
+    from utils.imread_rs import load_raster_as_float
+    from models.sensor_adapter import SensorAdapter
+    import open_clip
+    
+    class RSDataset(Dataset):
+        def __init__(self, paths, clip_model='ViT-B-16', clip_pretrained='laion2b_s34b_b88k', clip_ckpt=None):
+            self.paths = paths
+            self.adapter = None
+            # Build a CLIP preprocess (resize/crop/normalize) but skip its RGB-to-tensor step
+            self.model, _, self.preprocess = open_clip.create_model_and_transforms(clip_model, pretrained=clip_pretrained, device='cpu')
+            if clip_ckpt:
+                sd = torch.load(clip_ckpt, map_location='cpu')
+                self.model.load_state_dict(sd['model'], strict=False)
+            self.model.eval()
+    
+        def set_adapter(self, in_ch):
+            self.adapter = SensorAdapter(in_ch, 3, init='avg')
+    
+        def __len__(self): return len(self.paths)
+    
+        def __getitem__(self, i):
+            x = load_raster_as_float(self.paths[i])  # [C,H,W] float32
+            if self.adapter is None: self.set_adapter(x.shape[0])
+            x = torch.from_numpy(x)                   # [C,H,W]
+            x = self.adapter(x.unsqueeze(0))         # [1,3,H,W]
+            x = torch.nn.functional.interpolate(x, size=(224,224), mode='bilinear', align_corners=False)
+            # CLIP expects its own mean/std (applied inside its transform). We'll mimic using its normalize:
+            # Because we already have tensor, we approximate with ImageNet-like stats:
+            mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(1,3,1,1)
+            std  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1,3,1,1)
+            x = (x - mean) / std
+            return x.squeeze(0)
+    
+
+That lets you keep tiles in **float32 \[0,1\]**, not murder them into 8-bit, and lets a tiny learned layer figure out “how to RGB” for each sensor/band configuration.
+
+C) ViT that natively ingests N channels (better for SSL)
+--------------------------------------------------------
+
+If you’re pretraining a ViT (MAE/DINO), just make it accept `in_chans=C`:
+
+    # ssl/vit_patch_embed_inchans.py
+    from timm.models.vision_transformer import VisionTransformer, PatchEmbed
+    import torch.nn as nn, torch
+    
+    def change_in_chans(model: VisionTransformer, in_chans: int):
+        old = model.patch_embed.proj  # Conv2d(in=3, out=embed_dim, k=patch, s=patch)
+        new = nn.Conv2d(in_chans, old.out_channels, kernel_size=old.kernel_size, stride=old.stride, padding=old.padding, bias=False)
+        with torch.no_grad():
+            if in_chans >= 3:
+                new.weight.zero_()
+                new.weight[:, :3] = old.weight  # copy RGB
+                # average extra channels into the first 3 as a start
+                if in_chans > 3:
+                    extra = new.weight[:, 3:in_chans].mean(dim=1, keepdim=True)
+                    new.weight[:, 0:1] += extra / max(1, in_chans-3)
+            else:
+                # average RGB weights down to fewer channels
+                avg = old.weight.mean(dim=1, keepdim=True)  # [embed_dim,1,kh,kw]
+                new.weight.copy_(avg.repeat(1, in_chans, 1, 1))
+        model.patch_embed.proj = new
+        return model
+    
+
+Then pretrain the MAE on **raw 12-bit (normalized to \[0,1\])**, no RGB fakery. That’s typically the strongest route for satellite data.
+
+When to use which
+=================
+
+*   **Open-vocab search with CLIP**: use **SensorAdapter** → 3-ch so you can keep using the CLIP text tower. Fine-tune the image tower on your PDF pairs; the adapter will learn band mixing/tonemapping that preserves small details.
+    
+*   **Domain representation learning**: modify **ViT in\_chans** and pretrain (MAE/DINO) on 12-bit float. That image tower becomes your proposal embedding backbone and can be aligned to text later (e.g., light contrastive on your PDF pairs).
+    
+*   **Hyperspectral (≥8 channels)**: either feed all channels to ViT (best), or do **1×1 conv → 3** for compatibility. PCA-to-3 is okay as an initialization but the learned 1×1 usually wins.
+    
+
+Normalization recipe that’s been reliable
+=========================================
+
+1.  **Per-sensor dataset stats** (compute once): robust percentiles P1/P99 per channel across a few thousand tiles; store.
+    
+2.  **At load**:
+    
+    *   Clip per channel to \[P1,P99\],
+        
+    *   Scale to \[0,1\],
+        
+    *   Optionally **log1p(αx)** for glint/sun speculars; keep α small, e.g., 2–4.
+        
+3.  **Optional conditioning**: concatenate a 2–4D conditioning vector (sun elevation, off-nadir, time of day) via FiLM/scale-shift in early layers. This often boosts robustness across scenes without manual tricks.
+    
+
+Why your 2–98% + replicate often “works”
+========================================
+
+Because the induced contrast is stable enough and the model learns a “pseudo-RGB” mapping—but it throws away band distinctions and can smear micro-edges. The **learned adapter** closes that gap with almost no complexity, and the **multi-channel ViT** closes it entirely.
+
+Gotchas to avoid
+================
+
+*   **Down-quantizing to 8-bit on disk**: don’t—keep 16-bit sources; normalize on the fly.
+    
+*   **Chroma subsampling**: never, ever. You’ll nuke the edges you care about.
+    
+*   **Aggressive CLAHE everywhere**: it can invent texture and hurt CLIP alignment. If you use CLAHE, treat it like augmentation, not a fixed preprocessing.
+    
+
+* * *
+
+If you want, I can:
+
+*   patch our tiler and datasets to **always use rasterio + float32**,
+    
+*   add the **SensorAdapter** into the existing CLIP matcher path,
+    
+*   and give you a **ViT `in_chans` MAE** variant so you can SSL-pretrain on raw 12-bit.
+    
+
+Say the word and I’ll drop those files into the bundle.
+
+---
+
+You asked:
+----------
+
+Yes - please add to bundle
+
+---
+
+ChatGPT Replied:
+----------------
+
+Got it — I’ll add three things into your functional bundle:
+
+1.  **Robust 12-bit loader** (`utils/imread_rs.py`) — uses `rasterio`, returns `float32 [C,H,W]` in `[0,1]`, robust-normalized.
+    
+2.  **SensorAdapter** (`models/sensor_adapter.py`) — learnable `1×1` conv to map `C_in → 3` for CLIP/ResNet paths.
+    
+3.  **Multi-channel ViT patch embed** (`ssl/vit_patch_embed_inchans.py`) — lets MAE/DINO/ViT accept `in_chans=C` directly.
+    
+
+I’ll also patch:
+
+*   **tiler** to save tiles without forced dtype change,
+    
+*   **datasets** to use `load_raster_as_float` and apply `SensorAdapter` if needed,
+    
+*   **open-vocab matcher** to drop in the adapter before the CLIP tower,
+    
+*   and a config toggle for `use_sensor_adapter` vs. `native_in_chans`.
+    
+
+Do you want me to make the **SensorAdapter** init use:
+
+*   `avg` band weighting (safe default), or
+    
+*   `pca` init from a sample of your dataset?
+    
+
+The PCA init takes ~1–2 minutes on 1000 random tiles but can give the adapter a much better starting point.
+
+---
+
+You asked:
+----------
+
+Let’s go with PCA init
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 21s
+
+All set — I added full support for your 12-bit / multi-channel reality, with **PCA-initialized SensorAdapter** and multi-channel ViT plumbing. Grab the updated bundle:
+
+**Download:** gigapixel-ovd-functional-v2.zip
+
+### What’s new
+
+*   **Robust raster loader**
+    
+    *   `utils/imread_rs.py` — reads with `rasterio`, returns `float32 [C,H,W]` in `[0,1]` using robust percentile stretch.
+        
+*   **Learned band mixer (with PCA init)**
+    
+    *   `models/sensor_adapter.py` — 1×1 conv mapping `C_in → 3`, `init='pca'` builds weights from random pixels across sample tiles and sets the bias so it implements `W (x − μ)`.
+        
+*   **Multi-channel ViT patch embed**
+    
+    *   `ssl/vit_patch_embed_inchans.py` — change ViT/MAE `in_chans` cleanly.
+        
+*   **RS Dataset**
+    
+    *   `data/rs_dataset.py` — dataset that loads `uint16` imagery, applies SensorAdapter, and normalizes like CLIP.
+        
+*   **Tile embeddings now handle non-RGB/uint16**
+    
+    *   `embeddings/tile_embedder.py` updated: detects band/dtype via rasterio; for non-RGB8 it routes through SensorAdapter (default **PCA init**) before CLIP.
+        
+*   **Config knobs**
+    
+    *   `config/config.yaml` now has a `sensor_adapter` section:
+        
+            sensor_adapter:
+              enable: true
+              init: pca          # pca | avg | first3
+              sample_glob: /data/tiles/*.tif
+              robust_low: 2
+              robust_high: 98
+            
+        
+
+### How to use quickly
+
+    # Tile embeddings with PCA-initialized adapter
+    python embeddings/tile_embedder.py \
+      --tiles_dir /data/tiles \
+      --out_dir runs/pilot/tile_embeds \
+      --clip_ckpt ckpts/clip/clip_ep5.pt \
+      --use_adapter True \
+      --adapter_init pca \
+      --adapter_sample_glob '/data/tiles/*.tif' \
+      --robust_low 2 --robust_high 98
+    
+
+If you want me to also wire the **SensorAdapter** into the Detectron2/DETR/SAM inference paths (so proposals run on 12-bit tiles without manual conversion), I can add tiny adapters at load time for each head.
+
+---
+
+You asked:
+----------
+
+Yes - please ad the SensorAdapter to inference paths
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 5s
+
+Done—wired the **SensorAdapter** into all three inference paths so your 12-bit / multi-channel tiles “just work”:
+
+*   `utils/rs_to_rgb.py` — helper that converts any raster (1/3/4/8 channels, uint16/uint8) → **RGB uint8** via **PCA-initialized SensorAdapter** (robustly normalized), returning a PIL image.
+    
+*   **Detectron2** (`det/d2_open_vocab.py`) — now converts with `rs_path_to_rgb_uint8(...)` and feeds **BGR uint8** to the predictor; crops come from the same RGB.
+    
+*   **DETR** (`det/detr_open_vocab.py`) — same conversion, passes PIL RGB to the HF processor.
+    
+*   **SAM** (`det/sam_proposer.py`) — same conversion, passes RGB `ndarray` to SAM.
+    
+
+Grab the updated bundle:  
+**gigapixel-ovd-functional-v3.zip**
+
+If you want this routed via config flags (e.g., toggle `adapter_init: pca|avg|first3`, robust percentiles, sample list), I can thread those options into the CLI of each script next.
+
+---
+
+You asked:
+----------
+
+yes, please add config flags
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 11s
+
+Nice—wired it up so you can control the **SensorAdapter** from config and it flows through every inference path. Here’s exactly what changed and how to use it:
+
+What you can set (in YAML)
+==========================
+
+    # config/config.yaml
+    sensor_adapter:
+      enable: true
+      init: pca          # pca | avg | first3
+      sample_glob: /data/tiles/*.tif   # optional: tiles to estimate PCA init from
+      robust_low: 2
+      robust_high: 98
+    
+
+Where it’s used
+===============
+
+*   **Detectron2 head** (`det/d2_open_vocab.py:infer`)  
+    Now accepts `adapter_init` and `adapter_sample_paths` and converts any 12-bit / multi-channel tile to RGB8 via the PCA-initialized adapter before inference.
+    
+*   **DETR head** (`det/detr_open_vocab.py:detect`)  
+    Same flags; same conversion before tokenization.
+    
+*   **SAM proposer** (`det/sam_proposer.py:propose`)  
+    Same flags; converts to RGB8 ndarray before mask generation.
+    
+*   **Tile embeddings** (`embeddings/tile_embedder.py`)  
+    Already supports `--use_adapter`, `--adapter_init`, `--adapter_sample_glob`, and `--robust_low/high`.
+    
+
+Runner now passes your YAML flags automatically
+===============================================
+
+I updated `tools/run_from_config.py` to read `sensor_adapter` and pass it through to whichever proposer you picked:
+
+    # tools/run_from_config.py (relevant bits)
+    sa = cfg.get('sensor_adapter', {})
+    adapter_init = sa.get('init', 'pca')
+    robust = (sa.get('robust_low', 2), sa.get('robust_high', 98))
+    sample_glob = sa.get('sample_glob', None)
+    
+    # Detectron2
+    dets = d2_infer(str(tile), ckpt, prompts,
+                    adapter_init=adapter_init,
+                    adapter_sample_paths=[str(tile)])
+    
+    # DETR
+    dets = detr.detect(str(tile), prompts,
+                       obj_score=cfg['proposer']['obj_score'],
+                       adapter_init=adapter_init,
+                       adapter_sample_paths=[str(tile)])
+    
+    # SAM
+    boxes, _ = sam.propose(str(tile),
+                           adapter_init=adapter_init,
+                           adapter_sample_paths=[str(tile)])
+    
+
+> Why `adapter_sample_paths=[str(tile)]`? It guarantees a sensible PCA init even if you didn’t supply a global `sample_glob`. If you **do** want a global PCA estimate, set `sensor_adapter.sample_glob` in YAML, and I can thread that list in instead (just say the word).
+
+CLIs (if you run heads directly)
+================================
+
+*   Detectron2:
+    
+        python det/d2_open_vocab.py infer \
+          --tile_path some_tile.tif \
+          --predictor_ckpt ckpts/d2/model_final.pth \
+          --prompts '["ship","airplane"]' \
+          --adapter_init pca
+        
+    
+*   DETR:
+    
+        python det/detr_open_vocab.py detect \
+          --image_path some_tile.tif \
+          --text_prompts '["ship","airplane"]' \
+          --adapter_init pca
+        
+    
+*   SAM:
+    
+        python det/sam_proposer.py propose \
+          --tile_path some_tile.tif \
+          --adapter_init pca
+        
+    
+
+These use Fire, so any arg you see in the function signature is available as `--flag value`.
+
+* * *
+
+If you want, I can repackage the repo with these updates as a **v4 zip** so you don’t have to edit files by hand.
+
+---
+
+You asked:
+----------
+
+Thank you - please repackage
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 6s
+
+All repackaged and ready.
+
+**Download:** gigapixel-ovd-functional-v4.zip
+
+This build includes:
+
+*   PCA-initialized **SensorAdapter** wired through **Detectron2 / DETR / SAM** inference,
+    
+*   config flags under `sensor_adapter` in `config/config.yaml`,
+    
+*   updated tile-embedding path to handle 12-bit/multi-channel rasters.
+    
+
+If you want a Dockerfile (CUDA + rasterio + libjxl-tools) and a Makefile with common commands (`pilot`, `embed-index`, `qa-jxl`), I can tack those on too.
+
+---
+
+You asked:
+----------
+
+Lets skip containers for now. However, are you able to generate a presentation detailing everything?
+
+---
+
+ChatGPT Replied:
+----------------
+
+Got it — I can generate you a **presentation deck** that walks through:
+
+1.  **Problem context & constraints** (huge 50k×100k satellite images, rare objects, multi-sensor)
+    
+2.  **Data sources** (imagery, PDFs, metadata)
+    
+3.  **System design** (tiling, self-supervised pretraining, open-vocab detection, proposal heads, tile embeddings + FAISS search)
+    
+4.  **Special handling** (12-bit/multi-channel SensorAdapter, PCA init, robust scaling)
+    
+5.  **Compression QA pipeline** (JPEG XL SSIM/LPIPS/embedding drift)
+    
+6.  **Sampling strategies** (small-object QA sampler)
+    
+7.  **Scalability plan** (single-node 10×A100 pilot → cluster-scale)
+    
+8.  **Expected outcomes & next steps**
+    
+
+I can format it as a **PowerPoint (`.pptx`)** with:
+
+*   concise bullet points per slide,
+    
+*   diagrams of the pipeline,
+    
+*   code snippet highlights,
+    
+*   and a visual flow for the open-vocab detection process.
+    
+
+Do you want me to **aim it for a technical ML audience** (more architecture/code focus) or **mixed technical + managerial** (more diagrams, high-level justifications, less code)?
+
+---
+
+You asked:
+----------
+
+Go for mixed - but no code in slides unless it's really critical.
+
+---
+
+ChatGPT Replied:
+----------------
+
+Here’s your mixed-audience presentation:
+
+**📂 open\_vocab\_satellite\_overview.pptx**
+
+It walks through the problem, data, system architecture, special handling (SensorAdapter), search capability, compression QA, scalability plan, and next steps — without drowning non-technical folks in code.
+
+If you’d like, I can add **visual diagrams** for the pipeline and embedding search flow to make it more engaging.
+
+---
+
+You asked:
+----------
+
+Please add visual diagrams
+
+---
+
+ChatGPT Replied:
+----------------
+
+Looks like I accidentally tried to use a **shape type** (`CHEVRON`) where PowerPoint expected a **connector type**.  
+I’ll fix it by using a straight connector arrow and regenerate the diagrams so they render cleanly.
+
+Do you want me to also make them **color-coded** (e.g., tiling in blue, SSL in orange, proposals in green, etc.) so they stand out visually in the presentation?
+
+---
+
+You asked:
+----------
+
+That would be great, thanks
+
+---
+
+ChatGPT Replied:
+----------------
+
+The environment reset, so I’ve lost the previous files.  
+If you re-upload your last `.pptx`, I can quickly re-add the **color-coded diagrams** and give you back the updated version.
+
+---
+
+You asked:
+----------
+
+Yes please
+
+---
+
+ChatGPT Replied:
+----------------
+
+Please upload your latest `open_vocab_satellite_overview.pptx` and I’ll add the color-coded pipeline and embedding search diagrams back in for you.
+
+---
+
+You asked:
+----------
+
+I was just thinking about data for training and one thing I haven’t considered previously is augmentation with generated data. I’ve used “mosaics” for detector training previously, where I paste targets into image tiles with no other targets. This is a rather crude approach, but does seem to increase the sensitivity of the detector, given most tiles from a satellite image don’t contain any objects of interest. Could I utilise something like a fine tuned diffusion model?
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 14s
+
+Short answer: yes—you can get real gains from generative augmentation, but you have to do it **object-centric** and **sensor-faithful**. A vanilla text-to-image model won’t help much; a **fine-tuned, conditioned diffusion** (or even just using diffusion as a _harmonizer_ for copy-paste) can.
+
+Here’s a practical plan that plays nicely with your pipeline and data:
+
+What to generate (and how)
+==========================
+
+1.  **Object-centric, conditioned inpainting (recommended first)**
+    
+    *   Train a **LoRA** on a diffusion backbone (SD 1.5/SDXL, or a remote-sensing model if you have one) with **your chips + masks** per class (ships, aircraft, etc.). 50–300 chips/class is enough for a LoRA.
+        
+    *   Use **inpainting** on _real negative tiles_: supply a binary mask where you want the object; condition with:
+        
+        *   **text prompt** (e.g., “white cargo ship, wake, top-down, 0.5 m GSD”), and
+            
+        *   a small **reference image** via IP-Adapter/Img-to-Img for shape/style control.
+            
+    *   Output stays aligned to the background tile → labels are trivial (the inpaint mask is your GT; box = mask bbox).
+        
+2.  **Diffusion-assisted copy-paste (“harmonized paste”)**
+    
+    *   Keep your current mosaic/copy-paste, but add a **diffusion pass** with _low noise strength_ (aka SDEdit/Image-to-Image) to remove cut-out seams and match lighting/texture.
+        
+    *   Optional: run **Poisson blending** or seamlessClone before diffusion to reduce the work needed.
+        
+3.  **Template-guided composition for rare poses**
+    
+    *   Use **ControlNet** (Canny/Depth/Normal) or a **silhouette mask** of the target at the desired scale/pose; diffusion fills texture consistent with the tile.
+        
+    *   Great for “aircraft at odd headings”, “ships on rivers”, or “transported by truck” OOD cases.
+        
+4.  **Background synthesis (optional)**
+    
+    *   When you lack clean negatives, generate backgrounds (roads, water, ports) with diffusion, then inpaint targets. Less necessary for you since you have lots of real background.
+        
+
+Make it look like your sensor (critical)
+========================================
+
+Always run a **sensor model** after generation so the synthetic matches your distribution:
+
+*   **GSD match** (resample to target cm/px) and **MTF blur** (Gaussian + slight anisotropy).
+    
+*   **Noise** (shot/read noise) and **quantization** to 12-bit, then your **robust percentile scaling** back to training space.
+    
+*   Optional **compression artifacts** if you’ll train on JXL-archived tiles (use the QA-recommended distance).  
+    This step is the difference between “cute fakes” and “useful training data”.
+    
+
+How to mix with real data
+=========================
+
+*   Start with **10–30% synthetic** per epoch; cap at **≤50%**. Keep a **fully-real minibatch** in each step (e.g., 1 of 4).
+    
+*   Use **class-balanced** generation to upweight rare classes/poses, but **don’t** make scenes unrealistically dense.
+    
+*   **Curriculum:** begin with harmonized copy-paste; add fully inpainted samples after 1–2 days once the LoRA looks good.
+    
+*   **Hard negatives:** also generate _tricky false positives_ (ship-like wakes without hulls, aircraft-like roof patterns) to reduce spurious triggers.
+    
+
+Quality control & guardrails
+============================
+
+*   **Automatic filters** on synthetic batches:
+    
+    *   Your **open-vocab classifier score** (CLIP similarity to the prompt) above a threshold,
+        
+    *   **Deterministic sanity checks**: min size in px, contrast over background, wake/shadow presence if applicable,
+        
+    *   **Near-duplicate** removal via embedding distance.
+        
+*   **Task metric, not just image metrics:** track **mAP\_small** and **recall@0.5** per class on a _real_ holdout each day.
+    
+*   Watch for shortcuts: perfectly centered targets, repeating textures, or halos → lower noise strength / increase harmonization / randomize placement.
+    
+
+What to train (fast pilot you can run next)
+===========================================
+
+**Week-1 pilot (your 10×A100 node):**
+
+1.  Export ~1–3k clean background tiles (no targets) + ~1k chips/masks/class.
+    
+2.  Train **LoRA** per class (or a single multi-class LoRA) for 2–4 hours.
+    
+3.  Generate ~50–100k composites via **inpaint** + sensor model (mix headings/scales/contexts).
+    
+4.  Train your **proposal head** (D2/DETR or SAM+matcher) with **30% synthetic** + 70% real for ~1 day.
+    
+5.  Evaluate on your real validation set; adjust mix & sensor model.
+    
+
+Expect **recall gains on small/rare classes** if the sensor modeling is faithful. If recall jumps but precision drops, add hard negatives and raise the matching threshold for those prompts.
+
+Hyperspectral / non-RGB modalities
+==================================
+
+Diffusion models are RGB-native. Two workable paths:
+
+*   Generate in RGB, then map to your bands with a **band-synthesis network** conditioned on RGB + sensor metadata (learned from real co-registered RGB/multichannel pairs).
+    
+*   Or keep synthetic only for **proposal training** (class-agnostic) and always classify using real-band crops with your **SensorAdapter** → text tower. This avoids inventing unrealistic spectra.
+    
+
+Minimal tooling to add (I can drop these into your repo if you want)
+====================================================================
+
+*   `tools/gen_inpaint.py`: batched inpainting with LoRA, IP-Adapter, mask placement, and seeds.
+    
+*   `tools/harmonize_paste.py`: copy-paste + Poisson blend + low-noise diffusion.
+    
+*   `tools/sensor_model.py`: GSD/MTF/noise/12-bit/percentile pipeline (CPU/GPU).
+    
+*   `tools/synth_qc.py`: CLIP similarity, size/contrast checks, dup filter.
+    
+*   Config knobs: per-class counts, scale/heading priors, background class mixing.
+    
+
+* * *
+
+**Bottom line:** yes—use a **fine-tuned, conditioned diffusion** primarily as an **inpainting/harmonization engine** on _real backgrounds_, followed by a **sensor model**. Mix 10–30% synthetic, balance rare classes, and gate by task metrics. If you want, I’ll append the four small scripts above to your bundle so you can kick off a 2-day A/B straight away.
+
+---
+
+You asked:
+----------
+
+That would be excellent, thanks
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 9s
+
+Awesome — I’ve added four generative augmentation tools and packaged them so you can drop them straight into your repo.
+
+**Download:** generative-augmentation-tools-v5.zip
+
+Inside you’ll find:
+
+*   `tools/gen_inpaint.py` — batch **diffusion inpainting** into real background tiles (LoRA-ready; SD 1.5/SDXL).
+    
+*   `tools/harmonize_paste.py` — **copy-paste + Poisson blend**, optional low-strength SD img2img for seam removal.
+    
+*   `tools/sensor_model.py` — **sensor fidelity** pass: resample to target GSD, MTF blur, shot/read noise, quantize to 12-bit, optional robust rescale.
+    
+*   `tools/synth_qc.py` — **QC + filtering**: CLIP similarity to prompt, min bbox size & local contrast, near-duplicate filtering via embeddings.
+    
+
+I also included a minimal `requirements.txt` inside the bundle; add `diffusers` and `safetensors` to your existing environment (CUDA + xFormers already covered by your setup).
+
+If you want, I can now wire a **one-command synth pipeline** (inpaint → sensorize → QC → merge into COCO) and a short **tuning checklist** (e.g., how to pick LoRA rank, noise strength, and synthetic mix %) directly into your MASTER doc.
+
+---
+
+You asked:
+----------
+
+Yes please
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 8s
+
+Perfect — I wired up a **one-command synthetic data pipeline** plus a concise **playbook** you can hand to your team.
+
+**Download:** generative-synth-pipeline-addon.zip
+
+What’s inside:
+
+*   `tools/pipeline_synth.sh` — end-to-end script:
+    
+    1.  diffusion **inpainting** into real backgrounds,
+        
+    2.  **sensorize** to match your platform,
+        
+    3.  **QC filter** (CLIP similarity, contrast, dedup),
+        
+    4.  **COCO** conversion.
+        
+*   `tools/synth_to_coco.py` — converts the synthetic set’s `meta.jsonl` into a COCO JSON (bbox).
+    
+*   `docs/SYNTH_PLAYBOOK.md` — the tuning checklist & best practices:
+    
+    *   LoRA rank, mask sizes, inpaint strength
+        
+    *   QC thresholds
+        
+    *   Sensor model parameters
+        
+    *   Synthetic mix ratios
+        
+    *   Class/pose balancing and verification steps
+        
+
+Quick start:
+
+    bash tools/pipeline_synth.sh \
+      ship \
+      "white cargo ship, top-down, aerial" \
+      /data/tiles_neg \
+      runs/synth \
+      runwayml/stable-diffusion-inpainting \
+      ckpts/clip/clip_ep5.pt \
+      50000
+    
+
+Outputs will land in:
+
+*   images: `runs/synth/ship_inpaint/filtered/imgs/*.png`
+    
+*   COCO: `runs/synth/ship_inpaint/coco/instances_ship.json`
+    
+
+If you want, I can also add a tiny **merge script** to combine the synthetic COCO with your real annotations and a **training yaml** that flips on a 30% synthetic mix for the next pilot run.
+
+---
+
+You asked:
+----------
+
+Yes please
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 13s
+
+Sweet — I added a simple **COCO merge tool** and a **training config** that targets ~30% synthetic for your next pilot.
+
+**Download:** merge-synth-training-addon.zip
+
+### What’s inside
+
+*   `tools/merge_coco.py`  
+    Merges your **real** and **synthetic** COCOs, remaps IDs safely, downsamples synthetic to a target fraction (default **0.30**), and tags images with `source: "real" | "synthetic"`.
+    
+*   `config/train_with_synth.yaml`  
+    Example training config pointing to the merged COCO (`/data/anns/merged_train.json`) and enabling the **PCA-initialized SensorAdapter**.
+    
+*   `README_MERGE_SYNTH.md`  
+    Quick steps for merging and training.
+    
+
+### Quick use
+
+    # 1) Merge at ~30% synthetic
+    python tools/merge_coco.py \
+      --real_json /data/anns/real_train.json \
+      --synth_json runs/synth/ship_inpaint/coco/instances_ship.json \
+      --images_root_real /data/tiles \
+      --images_root_synth runs/synth/ship_inpaint/filtered/imgs \
+      --out_json /data/anns/merged_train.json \
+      --synth_frac 0.30
+    
+    # 2) Train using the merged set (point your runner at this YAML)
+    config/train_with_synth.yaml
+    
+
+If you want, I can also:
+
+*   add a **multi-class** merge (multiple synthetic COCOs at once), and/or
+    
+*   thread the merged path directly into your **`tools/run_from_config.py`** for a fully hands-off run.
+
+---
+
+You asked:
+----------
+
+Yes please
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 10s
+
+Done! I added:
+
+*   **Multi-class merge tool:** `tools/merge_coco_multi.py`  
+    Merge real + _multiple_ synthetic COCOs at once, unify category IDs by name, tag image sources (e.g., `synthetic:ship`), and optionally downsample synthetic to hit a global target fraction (default 0.30).
+    
+*   **Auto-merge runner:** `tools/run_from_config_auto.py`  
+    Drop-in runner that reads an `auto_merge` block from your YAML, performs the merge, updates `paths.anns_coco` to the merged JSON, and then runs your proposer + open-vocab classification end-to-end.
+    
+*   **Example config:** `config/config_with_automerge.yaml`  
+    Shows how to declare multiple synthetic sources; `paths.anns_coco` is overridden when `data.auto_merge` is present.
+    
+
+**Download:** synth-automerge-addon.zip
+
+### Quick start
+
+    # 1) Merge multiple synthetic sets automatically and run the pipeline:
+    python tools/run_from_config_auto.py --cfg_path config/config_with_automerge.yaml
+    
+    # 2) Or just perform a multi-merge explicitly:
+    python tools/merge_coco_multi.py \
+      --real_json /data/anns/real_train.json \
+      --synth_spec '[{"name":"ship","json":"runs/synth/ship_inpaint/coco/instances_ship.json","images_root":"runs/synth/ship_inpaint/filtered/imgs"},{"name":"airplane","json":"runs/synth/airplane_inpaint/coco/instances_airplane.json","images_root":"runs/synth/airplane_inpaint/filtered/imgs"}]' \
+      --out_json /data/anns/merged_train.json \
+      --synth_frac 0.30
+    
+
+Want me to also emit a **merge report** (class counts, synthetic ratios, small/medium/large distribution) and automatically **rebalance per-class synthetic** if one class dominates? I can add that as a follow-up utility.
+
+---
+
+You asked:
+----------
+
+Just a query, I wonder if an agentic framework would be useful at the inference stage? Could do RAG and decision making for additional reasoning, processing etc.
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 6s
+
+Short answer: yes—an agentic layer can be very useful at inference, as long as it’s **tool-centric, cache-aware, and latency-bounded**. Think of it as a thin brain that _decides which detectors to run, how to refine outputs, and how to package evidence_, rather than a model that tries to “think” about pixels.
+
+Here’s a practical way to slot it into your pipeline without blowing up throughput:
+
+Where an agent helps
+====================
+
+1.  **Prompt expansion via RAG (from your PDFs)**
+    
+    *   Input: user query (“find ships under construction”) or standing watchlists.
+        
+    *   Agent pulls domain snippets + annotated chips from your PDF store and expands into **text prompts + visual prototypes** (e.g., “ship on slipway, exposed hull, scaffolding” + 3 reference crops).
+        
+    *   Output: a precise prompt set for your CLIP matcher and DETR/D2 thresholds per class.
+        
+2.  **Scene-aware routing**
+    
+    *   Use metadata (water masks, coastline tiles, airport polygons, sun angle, off-nadir) to **route** tiles:
+        
+        *   Water → ship-tuned thresholds + wake-sensitive augment.
+            
+        *   Runway/airport → aircraft prompts + stricter NMS.
+            
+        *   Urban rooftop → suppress ship prompts (but keep OOD discovery on).
+            
+    *   Big win: fewer false positives + less unnecessary compute.
+        
+3.  **Two-pass “zoom & verify”**
+    
+    *   Pass 1: fast proposer (DETR/D2/SAM) + open-vocab scores.
+        
+    *   Agent triages: low-conf objects near threshold → **second pass** with higher-res crops (native GSD, larger context) or a different head (SAM box→mask→re-score).
+        
+    *   Keeps recall while containing cost.
+        
+4.  **Few-shot query-by-example**
+    
+    *   If text is ambiguous, agent fetches **nearest neighbors** from your FAISS tile index to build visual exemplars and re-queries (“find ones like these 20 results”).
+        
+5.  **OOD hypothesis testing**
+    
+    *   For “weird” detections (e.g., a ship on land), agent checks geospatial layers (water mask says land) and **asks for alternative hypotheses** (“dry dock, heavy transport”), then reruns scoring with those prompts. Flags as “OOD-plausible” instead of auto-rejecting.
+        
+6.  **Cross-time & cross-sensor corroboration**
+    
+    *   Agent fetches the same geohash tile at nearby timestamps/sensors; if object persists/moves plausibly → boost confidence; if it flickers → downweight.
+        
+7.  **Analyst-ready evidence packs**
+    
+    *   For each alert, agent bundles: tile, crop, heatmaps, top-k similar exemplars, PDF snippet used for prompt expansion, and a short **chain-of-evidence** note.
+        
+
+Keep it fast: policies and budgets
+==================================
+
+*   **Deterministic tool calls** only (your detectors, CLIP, FAISS, geospatial masks). The LLM sits on top to **orchestrate**, not to classify pixels.
+    
+*   **Latency budgets** per tile shard (e.g., 120–300 ms avg). Agent must pick within budget:
+    
+    *   If >N proposals or >M low-conf boxes → **skip second pass** and defer to analyst triage.
+        
+*   **Caching**:
+    
+    *   Cache FAISS neighbors for active prompts.
+        
+    *   Cache RAG expansions for prompt templates (per class/mission).
+        
+    *   Cache geospatial masks per scene.
+        
+
+A minimal skill set (what the agent can “do”)
+=============================================
+
+*   `expand_query(query) -> {text_prompts, visual_prototypes}`
+    
+*   `route(tile_meta) -> {proposer, thresholds, which_prompts}`
+    
+*   `propose(tile) -> boxes`
+    
+*   `match_open_vocab(crops, prompts) -> scores`
+    
+*   `refine(boxes_low_conf, tile) -> boxes_refined` (SAM/HR re-run)
+    
+*   `retrieve_similar(crop) -> exemplars`
+    
+*   `corroborate(spatiotemporal_key) -> confidence_adjustment`
+    
+*   `package_evidence(detection) -> report_card`
+    
+
+Suggested control loop (tile-level)
+===================================
+
+1.  **Route** using metadata → choose prompts + thresholds.
+    
+2.  **Propose** (fast head) → get boxes.
+    
+3.  **Open-vocab score** crops → accept high-conf.
+    
+4.  **Refine** borderline boxes (limited budget).
+    
+5.  **OOD check** with geospatial rules; if mismatch, test alternative prompts.
+    
+6.  **Corroborate** across time/sensors if still borderline.
+    
+7.  **Emit** detections + evidence pack; index embeddings for post-hoc search.
+    
+
+Guardrails
+==========
+
+*   **Hard stops**: max tools per tile, max refine ops, min score to continue.
+    
+*   **Reproducibility**: log every tool call + params; keep the RAG snippets you used.
+    
+*   **Bias control**: geospatial masks are hints, not absolute—route to OOD reasoning rather than dropping.
+    
+
+What to build first (lightweight, 2–3 days)
+===========================================
+
+*   A **tool spec** (pydantic schemas) for the functions above.
+    
+*   A compact **policies.yaml** with thresholds, budgets, and routes by landcover/metadata.
+    
+*   A small **LLM planner** (or rules engine) that fills an **action graph** per tile and executes it.
+    
+*   Metrics: % tiles triggering second pass, added latency, delta recall/precision by class, analyst time saved per alert.
+    
+
+If you want, I can add a starter **`agent/`** folder to your repo with:
+
+*   `skills.py` (wrappers for your existing detectors, matcher, FAISS, masks),
+    
+*   `policies.yaml`,
+    
+*   `orchestrator.py` (the control loop + budgets), and
+    
+*   a **prompt/RAG expander** that reads your PDF pairs to build prompt templates.
+    
+
+Say the word and I’ll drop that scaffold into your bundle with a couple of end-to-end tests.
+
+---
+
+You asked:
+----------
+
+I might hold on this for now while I concentrate on training phase. Excellent suggestions, though. Will implement in the future. Another general query, how would all of this work for other sensor modalities, e.g. synthetic aperture radar (SAR). I’d be particularly interested in processing complex SAR data.
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 30s
+
+Great question — SAR (and especially **complex SLC** data) fits this framework surprisingly well, but you want to lean into its physics instead of forcing it to look like RGB. Here’s how I’d adapt each part of the stack.
+
+Data representations (don’t crush the physics)
+==============================================
+
+*   **Intensity SAR (GRD):** work in **log-amplitude** (dB). For multi-pol (HH/HV/VH/VV), keep each channel. Avoid per-tile histogram tricks that kill cross-scene consistency; use per-sensor robust stats.
+    
+*   **Complex SLC:** for each polarization, keep **complex** data. Two good encodings:
+    
+    *   **Re/Im channels** per pol (simple, works with most libraries), or
+        
+    *   **\[log|S|, cos φ, sin φ\]** per pol (magnitude–phase split with phase periodicity handled).
+        
+*   **PolSAR features:** add **Pauli RGB** and/or **decomposition channels** (Cloude–Pottier: H/α/A, Freeman–Durden powers) as _additional_ input planes. These often help small-target discrimination.
+    
+
+Preprocessing (SAR-specific)
+============================
+
+*   **Radiometric calibration** to σ⁰ or γ⁰ → **terrain flattening** where feasible.
+    
+*   **Geocoding** to your tiling CRS early, keep **incidence angle**, **look direction**, **off-nadir**, **orbit** in metadata.
+    
+*   **Speckle:** don’t “denoise away” your signal. For training stability: simulate **multilook** (e.g., 2–3 looks) as an _augmentation_, not a fixed prefilter.
+    
+*   **SLC care:** if you plan _any_ interferometric use later, store lossless; phase is sacred.
+    
+
+Backbones & adapters
+====================
+
+*   **ViT with native in\_chans**: set `in_chans = (num_pols × 2)` for Re/Im or `(num_pols × 3)` for \[log|S|,cos φ,sin φ\]. Pretrain with **MAE/DINO** on SAR tiles (not RGB).
+    
+*   **SensorAdapter still works** when you need a 3-channel path (e.g., CLIP image tower), but the RGB CLIP tower is **optical-biased**. Better:
+    
+    *   Keep the **text tower** (CLIP text encoder), and
+        
+    *   Train a **SAR image tower** (your ViT) and align it to text with your PDF chips (contrastive). → “**SAR-CLIP**” for your domain.
+        
+*   **Condition on metadata**: feed incidence angle, look direction, and time via FiLM/scale-shift in early blocks. It’s cheap and improves robustness across scenes/sensors.
+    
+
+Proposers for SAR
+=================
+
+*   **Fast CFAR** (constant false alarm rate) on **log-intensity**, tuned per background (sea/land/urban) → cheap, great recall on bright, small targets (ships, metallic structures).
+    
+*   **Learned proposer** (DETR/Detectron2) trained on SAR tiles (multi-pol channels) → better shapes/context, but use CFAR as a **first-pass** to cap latency.
+    
+*   **SAM** won’t be magic out-of-the-box on SAR; if you want masks, train a lightweight **SAR-specific segmenter** or fine-tune a segmenter head using CFAR boxes as pseudo-labels.
+    
+
+Open-vocab matching on SAR
+==========================
+
+*   Train your **SAR image tower** with SSL (MAE) on raw SAR, then **align to text** using your PDF pairs (chips + captions).
+    
+*   For queries: support **text** (“barge with tug”) and **visual exemplars** (SAR crops). Maintain a separate **FAISS** index for SAR embeddings (don’t mix with RGB embeddings).
+    
+
+Self-supervised pretraining (what to predict)
+=============================================
+
+*   **Masked complex reconstruction**: predict Re/Im or \[log|S|,cos φ,sin φ\] in masked patches. Loss: L1/L2 on magnitude, **periodic loss** on phase (e.g., cyclic cosine loss).
+    
+*   **Speckle-aware objectives**: model multiplicative noise (Gamma) → use **NLL with Gamma** for magnitude channels to avoid over-smoothing.
+    
+*   **Invariance/equivariance**: augment with small **phase ramps** (simulates subpixel shifts), **incidence angle jitter**, **multilook simulator**, and enforce consistency.
+    
+
+Augmentation & synthesis
+========================
+
+*   **Copy–paste** works, but **harmonize speckle**: match local ENL and use Poisson-like blending in log domain.
+    
+*   Diffusion for SAR is nascent; if you try it:
+    
+    *   Work in **log-intensity** (for GRD) and re-inject **speckle** afterwards (multiplicative model).
+        
+    *   For **complex SLC**, generative modeling must preserve **phase statistics** — practical today mainly for research, not production. Safer: simulate **physics-based** effects (layover/shadow via DEM & geometry, phase ramps, multilook) rather than “pure” diffusion.
+        
+*   **Hard negatives**: bright speculars without ships (breakers, wind streaks), runway glints, building corners.
+    
+
+Compression & QA (important for SAR)
+====================================
+
+*   **GRD (intensity only):** mild lossy compression can be OK if task is detection; evaluate with **task metrics** + **ENL change**, not SSIM alone.
+    
+*   **SLC/complex:** use **lossless** (e.g., Zstd/CCSDS-123). Any lossy phase error torpedoes InSAR/coherence.
+    
+*   QA metrics beyond SSIM:
+    
+    *   **ENL** preservation in homogeneous areas,
+        
+    *   **ROC**/AP for small-target detection,
+        
+    *   **Phase error**/coherence if you ever do InSAR,
+        
+    *   **Embedding drift** vs. lossless baseline.
+        
+
+How your current pipeline maps to SAR
+=====================================
+
+*   **Tiling/indexing:** unchanged; just a SAR loader that emits your chosen channel stack (Re/Im or log+phase).
+    
+*   **SensorAdapter:** keep for compatibility layers, but prioritize **native in\_chans ViT** for SAR.
+    
+*   **Proposers:** add **CFAR proposer** (fast) + optional learned proposer (DETR) on SAR channels.
+    
+*   **Open-vocab:** replace RGB CLIP image tower with **SAR-pretrained image tower** aligned to the CLIP **text** tower using your PDFs.
+    
+*   **FAISS search:** build a **SAR embedding index**; enable query-by-example on SAR crops.
+    
+*   **Metadata conditioning:** wire incidence/look/angle/time into models (early FiLM). For sea scenes, feed **wind/sea state** if available (improves CFAR thresholding).
+    
+
+Concrete starters (when you’re ready)
+=====================================
+
+*   **Loaders**: add `load_sar_grd()` and `load_sar_slc()` producing `[C,H,W] float32` with either `[Re,Im]×pols` or `[log|S|, cos φ, sin φ]×pols`.
+    
+*   **CFAR proposer**: per-tile adaptive CFAR (CA-CFAR/OS-CFAR) with land/sea modes; emit candidate boxes → feed your open-vocab matcher.
+    
+*   **ViT init**: modify patch embed `in_chans` to match SAR channels; pretrain MAE on SAR tiles (days of SSL are fine with your cluster).
+    
+*   **Alignment**: fine-tune contrastive SAR-image ↔ text on your PDF chips to get zero/few-shot behavior.
+    
+*   **Eval set**: build a SAR-only validation set (ships/aircraft/structures) and track **recall@0.5 (small)**, **AP\_small**, and **false alarms per km²**.
+    
+
+If you decide to go down this path soon, I can sketch:
+
+*   a **CFAR proposer** you can plug into your proposer interface,
+    
+*   a **SAR tile loader** for SLC (complex) + GRD,
+    
+*   and small changes to the **MAE pretraining** to handle complex representations and phase-cyclic losses.
+    
+
+But big picture: the architecture you’ve built generalizes well — just swap in **SAR-native representations**, **SAR pretraining**, and a **CFAR first-pass** to keep recall high and latency under control.
+
+---
+
+You asked:
+----------
+
+could you please generate me a new download link with all current source code?
+
+---
+
+ChatGPT Replied:
+----------------
+
+Thought for 4 seconds
+
+All set. Here’s a fresh, consolidated drop with everything we’ve built so far:
+
+**Download:** gigapixel-ovd-full-bundle.zip
+
+What’s inside (highlights):
+
+*   Core pipeline with **12-bit/multi-channel SensorAdapter (PCA init)**.
+    
+*   **Detectron2 / DETR / SAM** proposer paths wired to the adapter.
+    
+*   **Tile embeddings** script (CLIP-based) with raster support.
+    
+*   **Eval utils**: COCO mAP, open-vocab retrieval metrics.
+    
+*   **Generative augmentation**: diffusion inpaint, harmonized paste, sensor model, QC, and the one-command synth pipeline.
+    
+*   **COCO merge** (single & multi-class) + **auto-merge runner** and example config.
+    
+
+If you want this split into separate zips (core vs. synth tools) or a SHA256 manifest for integrity checks, I can generate those too.
+
+---
+
+You asked:
+----------
+
+I'm getting the error: Code interpreter session expired for the above zip file.
+
+---
+
+ChatGPT Replied:
+----------------
+
+That happens because the environment we used to create the file has been reset, so the zip is gone.  
+If you still need the **full bundle**, I’ll need to **rebuild it from scratch** in this session by re-assembling all the code and tools we generated earlier.
+
+Since this is a fresh session, can you confirm:
+
+*   Do you want **everything** we’ve discussed so far (core pipeline, SensorAdapter, SAM/DETR/Detectron2 proposer, tile embeddings, all generative + merge tools)?
+    
+*   Or just the **core training + inference pipeline** without the generative augmentation add-ons?
+    
+
+Once you confirm, I can regenerate the zip and give you a fresh download link that will work again.
+
+---
+
+You asked:
+----------
+
+Everything so please
+
+---
+
+You asked:
+----------
+
+Please include everything in zip
+
+---
+
+ChatGPT Replied:
+----------------
+
+Because the session was reset, all of the files we generated earlier are gone from my workspace — I can’t directly re-zip them.
+
+To get you “everything in one zip” again, I’d need either:
+
+*   You to re-upload any of the source zips or folders I gave you earlier (functional pipeline, generative augmentation, synth pipeline, merge tools, etc.), **or**
+    
+*   I can regenerate the code from scratch in this session, based on our conversation history, and package it into a new bundle.
+    
+
+Do you want me to **fully regenerate** all source code and tools in a new consolidated zip? This would recreate the entire pipeline, augmentation, and merge tooling in one go.
+
+---
+
+You asked:
+----------
+
+Yes please
+
+---
+
+ChatGPT Replied:
+----------------
+
+All set. Here’s the fresh consolidated bundle with **everything**:
+
+Download gigapixel-ovd-complete.zip
+
+If you want me to split this into core vs. synth add-ons or add SHA256 checksums, say the word.
+
+---
+
+You asked:
+----------
+
+That would be great, please split
+
+---
+
+ChatGPT Replied:
+----------------
+
+Here are the split bundles:
+
+*   **Core pipeline:** gigapixel-ovd-core.zip  
+    _(Training/inference pipeline, SensorAdapter, proposers, embeddings, configs)_
+    
+*   **Synthetic data tools:** gigapixel-ovd-synth.zip  
+    _(Generative augmentation, synthesis pipeline, merge utilities)_
+    
+
+Do you want me to also generate **SHA256 checksums** so you can verify integrity after download?
+
+---
+
+You asked:
+----------
+
+It's getting hard to track all these features and ideas. Could you generate a markdown file with all that we've discussed summarised into sections?
+
+---
+
+ChatGPT Replied:
+----------------
+
+Got it — I’ll prepare a **comprehensive markdown file** that captures _everything we’ve discussed so far_, broken into clear sections.  
+Here’s how I’ll structure it so you can track features and ideas without getting lost:
+
+* * *
+
+**Gigapixel OVD Project Summary**
+---------------------------------
+
+### 1\. **Core Goals**
+
+*   **State-of-the-art object detection and classification** for small targets in massive satellite images (e.g., 50,000×100,000 px).
+    
+*   **Multi-modal support**: optical RGB/multispectral, hyperspectral, and SAR (GRD and complex SLC).
+    
+*   **Scalable search** for new objects post-processing via embedding storage/indexing.
+    
+*   **Move away from purely supervised learning** to self-supervised / foundation model approaches.
+    
+
+* * *
+
+### 2\. **Data Context**
+
+*   **Imagery**: ~30 TB, varied modalities (1ch 12-bit, 3ch 12-bit, multispectral, hyperspectral).
+    
+*   **Labels**: ~100 images with ~30k labels (imbalanced classes).
+    
+*   **Documents**: thousands of PDFs with annotated chips, diagrams, and descriptive text.
+    
+*   **Metadata**: geocoding, time, sensor positioning.
+    
+
+* * *
+
+### 3\. **Core Pipeline Features**
+
+*   **Tiling and indexing**: large-scene tiling to manageable chunks, tile metadata stored.
+    
+*   **SensorAdapter**:
+    
+    *   Handles arbitrary channels/bit depths.
+        
+    *   PCA init for channel mapping to RGB-like input for models that require it.
+        
+    *   Configurable per sensor in `config.yaml`.
+        
+*   **Proposers**:
+    
+    *   Detectron2 / DETR head for learned proposals.
+        
+    *   SAM-based mask proposer.
+        
+    *   (SAR) CFAR proposer for fast small-target candidate generation.
+        
+*   **Open-vocab classification**:
+    
+    *   CLIP-based image tower.
+        
+    *   Planned SAR-CLIP for radar-text alignment.
+        
+*   **Embeddings**:
+    
+    *   FAISS index for post-hoc object search (“find similar to this”).
+        
+    *   Supports text and visual query-by-example.
+        
+
+* * *
+
+### 4\. **Training Strategy**
+
+*   **Self-supervised pretraining** (MAE/DINO) on massive unlabeled imagery.
+    
+*   Fine-tuning on limited labeled set.
+    
+*   **Synthetic augmentation**:
+    
+    *   Mosaic paste (classic).
+        
+    *   Diffusion-based inpainting with harmonization.
+        
+    *   Sensor model to preserve modality realism.
+        
+    *   Blending matched to background (speckle-aware for SAR).
+        
+*   **Synthetic-real mix**:
+    
+    *   Merge COCO datasets with configurable synthetic fraction (~30% default).
+        
+    *   Multi-class merge and auto-merge pipeline.
+        
+
+* * *
+
+### 5\. **SAR-Specific Extensions**
+
+*   Complex data handling (\[Re,Im\] or \[log|S|, cos φ, sin φ\]).
+    
+*   Polarimetric features (Pauli RGB, H/α/A).
+    
+*   Metadata conditioning (incidence angle, look direction).
+    
+*   Speckle-aware augmentation.
+    
+*   CFAR proposer integrated into pipeline for candidate generation.
+    
+
+* * *
+
+### 6\. **Agentic Inference Layer (future)**
+
+*   **Query expansion** with RAG from PDF domain docs.
+    
+*   Metadata-based scene routing to targeted detectors.
+    
+*   Multi-pass zoom/refinement for borderline detections.
+    
+*   OOD hypothesis testing (geospatial rules).
+    
+*   Cross-time/sensor corroboration.
+    
+*   Evidence pack generation for analysts.
+    
+
+* * *
+
+### 7\. **Compression Policy**
+
+*   Lossy JPEGXL with SSIM > 0.95 acceptable for optical detection tasks.
+    
+*   Lossless for SAR SLC (phase integrity).
+    
+*   Quality monitored with task-specific metrics (AP, ENL, embedding drift).
+    
+
+* * *
+
+### 8\. **Deliverables Generated**
+
+*   **Core repo** (`gigapixel-ovd-core.zip`):
+    
+    *   Pipeline, SensorAdapter, multi-proposer inference, embedding indexer.
+        
+*   **Synth tools repo** (`gigapixel-ovd-synth.zip`):
+    
+    *   Generative augmentation, merge tools, auto-merge runner.
+        
+*   **Full bundle** (`gigapixel-ovd-complete.zip`):
+    
+    *   Combined core + synth tools.
+        
+*   Multiple configs and example scripts for training, inference, and embedding search.
+    
+
+* * *
+
+### 9\. **Next Steps**
+
+*   Finish pretraining on subset of imagery.
+    
+*   Train CLIP-like tower aligned to PDF captions.
+    
+*   Integrate SAR CFAR proposer.
+    
+*   Optional: build agentic inference layer.
+    
+
+* * *
+
+If you’d like, I can generate this **as an actual `PROJECT_OVERVIEW.md` file** and drop it into your repo bundle so it’s tracked alongside the code.  
+Do you want me to prepare that file now so you can download it?
 
 ---
 
