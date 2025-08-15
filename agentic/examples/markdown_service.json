@@ -1,0 +1,24 @@
+{
+  "feature": "Markdown to HTML conversion microservice",
+  "context": "A Python FastAPI service that exposes a POST /render endpoint, accepts Markdown text in the request body, and returns rendered HTML. Includes unit tests and Docker packaging.",
+  "non_goals": [
+    "Authentication or rate limiting",
+    "Persistence layer",
+    "Advanced Markdown extensions"
+  ],
+  "acceptance_tests": [
+    "POST /render returns 200 and HTML when given valid Markdown",
+    "Renders headings, bold, italics, links, and code blocks",
+    "Returns HTTP 400 for empty or invalid body",
+    "Includes pytest tests for success and error cases",
+    "Dockerfile builds a working container image"
+  ],
+  "api_surfaces": ["POST /render"],
+  "constraints": {
+    "python_version": "3.12",
+    "renderer": "markdown (PyPI)",
+    "port": "8080",
+    "packaging": "Dockerfile + compose for local verification"
+  },
+  "artifacts": ["code", "tests", "docs"]
+}

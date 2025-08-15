@@ -1,0 +1,22 @@
+{
+  "feature": "hello-microservice",
+  "context": "Return 'hello' JSON on GET /",
+  "non_goals": [
+    "auth",
+    "persistence"
+  ],
+  "acceptance_tests": [
+    "GET / returns 200 and {'hello':'world'}"
+  ],
+  "api_surfaces": [
+    "GET /"
+  ],
+  "constraints": {
+    "license": "MIT"
+  },
+  "artifacts": [
+    "code",
+    "tests",
+    "docs"
+  ]
+}
