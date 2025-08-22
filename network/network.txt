@@ -1,0 +1,264 @@
+What you’re running into is essentially **Windows Integrated Authentication (WIA)** via the `Negotiate` scheme. Here’s what’s happening and what you can do:
+
+---
+
+## What’s Happening with “Negotiate”
+
+* When you see `WWW-Authenticate: Negotiate`, the server is expecting either:
+
+  * **Kerberos tickets** from your Windows logon session, or
+  * **NTLM authentication** if Kerberos isn’t available.
+* In your Citrix Windows session, the browser automatically uses your logged-in user’s Kerberos TGT or NTLM credentials. That’s why it “just works” inside Citrix, but not from your Linux hosts on network A.
+* The PKI certificates you see in the browser are often for client TLS auth (mutual TLS), but in many enterprise setups, the actual authentication is happening with Kerberos, not the certificate.
+
+---
+
+## How to Check Exactly What’s Going On
+
+You can confirm what mechanism is being used with some tools:
+
+1. **Browser DevTools**
+   Open F12 → Network tab → look at the headers for a 401 challenge. You’ll see:
+
+   * `WWW-Authenticate: Negotiate` (possibly alongside `NTLM`).
+   * If Kerberos is used, you’ll see a base64 blob starting with `YI...` in the `Authorization: Negotiate` header.
+   * If NTLM is used, the blob starts with `TlRMTVNTUA...`.
+
+2. **Kerberos Debugging on Windows (inside Citrix)**
+   Run:
+
+   ```powershell
+   klist
+   ```
+
+   This shows cached Kerberos tickets. If you see one for the target web service (HTTP/hostname\@REALM), then Kerberos is being used.
+
+3. **TLS Inspection**
+   If you suspect client certificate auth is also in play, you can use Wireshark or Fiddler to see if a TLS handshake is requesting a client certificate.
+
+---
+
+## Why It Doesn’t Work from Linux / Network A
+
+* On Linux, unless you have a valid Kerberos ticket for the realm that the server trusts, the Negotiate handshake will fail.
+* You can’t export the private key from Windows because it’s marked as **non-exportable** (common for smartcard/TPM-backed keys). That means you can’t just lift the cert and use it on Linux.
+* If it’s pure Kerberos, you’d need to:
+
+  * Be joined to the same AD domain (or have a cross-realm trust).
+  * Use `kinit` to get a ticket, then use something like `curl --negotiate -u : http://...` or Python’s `requests-kerberos`.
+
+---
+
+## Options for Access
+
+Here are realistic paths forward:
+
+1. **Kerberos Route (if AD-based Negotiate)**
+
+   * Install `krb5-user` and `libcurl4-gnutls-dev` (or equivalents).
+   * Get a keytab from your AD team, or run `kinit user@REALM` with your domain credentials.
+   * Test with:
+
+     ```bash
+     curl --negotiate -u : -b ~/cookiejar.txt -c ~/cookiejar.txt https://target.site
+     ```
+   * This works if the site truly relies on Kerberos.
+
+2. **NTLM Fallback**
+
+   * If the site allows NTLM, you can use `curl --ntlm -u DOMAIN\\user:password https://...`.
+   * Downside: you need to provide a password.
+
+3. **Certificate-based Mutual TLS**
+
+   * If the site *really is* requiring client cert auth (not Kerberos), you’d need the private key. Since export is blocked, you’d need middleware (e.g. use Citrix session as a proxy, or see if your org provides a PFX with key access).
+
+4. **Citrix Jump / Proxy Approach**
+
+   * Run a lightweight proxy on your Citrix Windows session (e.g. `cntlm` for NTLM, or `corkscrew`, or even `mitmproxy`).
+   * Forward requests from Linux → proxy in Citrix → target site.
+   * This way the Windows environment does the Negotiate dance for you.
+
+---
+
+✅ **Summary:**
+You can check what’s happening by inspecting the `WWW-Authenticate` and `Authorization` headers or running `klist` in Citrix. It’s almost certainly Kerberos via `Negotiate`, not PKI client auth. To access from Linux, you’ll need either Kerberos tickets (`kinit` + curl/requests-kerberos), NTLM credentials, or to proxy through your Citrix session.
+
+---
+
+Do you want me to walk you through setting up a **curl/requests-kerberos workflow on Linux**, or would a **proxy approach from Citrix** be more realistic in your environment?
+
+Perfect — let’s dig into that.
+The idea is: since your **Windows Citrix session already has the right credentials** (Kerberos tickets, smartcard certs, etc.), you let it act as a **middle-man proxy**. Instead of trying to reproduce all of Windows’ PKI/Kerberos magic on Linux, you forward requests into Citrix, and it does the “Negotiate” handshake for you.
+
+---
+
+# 🔀 Proxy Approach from Citrix
+
+### 1. Why This Works
+
+* When you’re inside Citrix, your Windows environment is domain-joined and already trusted.
+* A proxy running there can accept plain HTTP requests (from you on Network A), then forward them to the “Network B” sites using the Windows auth.
+* To your Linux host, it just looks like a normal HTTP proxy; to the sites, it looks like a normal Windows browser with proper credentials.
+
+---
+
+### 2. Options for Proxies
+
+#### **a) CNTLM (NTLM/Kerberos Proxy)**
+
+* Originally written for NTLM, but can sit in front of Negotiate too.
+* You install it in Windows, configure it with your domain/username/password (or rely on Windows auth), and it listens on `localhost:3128`.
+* From Linux, you can point `curl` or Python at that proxy:
+
+  ```bash
+  curl -x http://citrix-host:3128 https://site.on.networkB/
+  ```
+* CNTLM authenticates against the AD server with Negotiate, so your request goes through.
+
+---
+
+#### **b) MITMProxy (or Fiddler)**
+
+* These act as full man-in-the-middle proxies.
+* You run `mitmproxy` on Citrix Windows → it will prompt you (or use your Windows auth) when sites challenge with Negotiate.
+* On Linux, you point traffic to it.
+* Advantage: you can even inspect/modify traffic for debugging.
+
+---
+
+#### **c) Simple Forwarding Proxy (e.g. Squid in “login=PASSTHRU” mode)**
+
+* Squid on Windows can be configured to pass through to upstream servers using the logged-in user’s Kerberos tickets.
+* More complex to set up, but closer to enterprise best practice.
+
+---
+
+### 3. How You’d Connect From Network A
+
+* You need a way to reach the Citrix session’s proxy. Options:
+
+  * **SSH tunnel / port-forward** into the Citrix session (if allowed).
+  * **Expose the proxy to Network A** (might not be possible depending on firewall rules).
+  * **Run tools inside Citrix** but connect to them remotely (less ideal if you want automation from Linux).
+
+---
+
+### 4. Workflow Example
+
+1. Inside Citrix Windows session:
+
+   * Install CNTLM.
+   * Configure it with your AD username/password (or integrated login).
+   * Run it so it listens on port 3128.
+
+2. From Linux:
+
+   ```bash
+   export http_proxy=http://citrix-ip:3128
+   export https_proxy=http://citrix-ip:3128
+
+   curl https://site.on.networkB/
+   ```
+
+   Now CNTLM handles the Negotiate handshake with the site.
+
+3. Result: You can hit the Negotiate-only websites from Network A, without ever handling Kerberos/PKI directly.
+
+---
+
+### 5. Caveats
+
+* This does mean your Citrix session must be **up and running** for the proxy to work.
+* Some organisations forbid proxy relaying (could violate security policy).
+* If the site truly requires a smartcard/private key stored in Windows TPM, only the Citrix session can present it — proxying is your only option.
+
+---
+
+👉 In short: you piggy-back on your Citrix environment by running a local proxy there, and then configure your Linux tools to use it.
+
+---
+
+Do you want me to write you a **step-by-step CNTLM setup on Windows** (with config examples), or would you prefer a **transparent MITMProxy setup** so you can also inspect the traffic?
+
+
+Got it 👍 — thanks for clarifying. That changes things significantly.
+
+If the **Citrix Windows side is locked down** and you can’t install/run proxies or tools there, then unfortunately you can’t “borrow” its authentication stack. Everything you do has to be from the Linux side on **Network A**, which means you have to replicate or substitute what the Citrix session/browser is doing when it negotiates authentication.
+
+---
+
+## Where That Leaves You
+
+### 1. **Check the Actual Auth Mechanism**
+
+As I mentioned before, the key is figuring out:
+
+* Is the site really using **Kerberos/NTLM Negotiate**?
+* Or is it doing **mutual TLS with a client certificate**?
+
+You can confirm this by:
+
+* Looking at the `WWW-Authenticate` headers in the browser dev tools (inside Citrix).
+* Running `klist` inside Citrix:
+
+  * If you see `HTTP/hostname@REALM` tickets, it’s Kerberos.
+* If the TLS handshake is requesting a certificate, then it’s PKI and not Kerberos.
+
+---
+
+### 2. **If it’s Kerberos**
+
+* You’ll need a **Kerberos ticket** from the domain the site trusts.
+* On Linux, that means:
+
+  1. Install Kerberos tooling (`krb5-user`, `kinit`, `libkrb5-dev`).
+  2. Get either:
+
+     * A **keytab** file for your account from IT, or
+     * Be able to run `kinit` with your domain password.
+  3. Once you have a valid ticket (`klist` will show it), you can call:
+
+     ```bash
+     curl --negotiate -u : https://site.on.networkB/
+     ```
+
+     or in Python:
+
+     ```python
+     import requests
+     from requests_kerberos import HTTPKerberosAuth
+
+     r = requests.get("https://site.on.networkB/", auth=HTTPKerberosAuth())
+     print(r.text)
+     ```
+
+⚠️ But — if your company’s policy is “Kerberos tickets are only issued on Windows logon inside Citrix,” then you won’t get one outside. In that case, you’re stuck unless IT will provide you a keytab or allow domain-joined Linux access.
+
+---
+
+### 3. **If it’s PKI Client Certs**
+
+* The site may be doing **mutual TLS** and asking your Windows session for a certificate.
+* Problem: as you noticed, the private key is **non-exportable** (TPM or smartcard backed).
+* That means: you **cannot move it** to Linux. There is no workaround — the private key never leaves Windows.
+* Only way forward is to tunnel traffic into the Windows environment (proxy/jump host), which you said isn’t possible here.
+
+---
+
+### 4. **What This Means in Practice**
+
+* If it’s **Kerberos/NTLM Negotiate**: your only hope is to get Linux into the Kerberos realm with valid tickets (needs IT cooperation).
+* If it’s **PKI client certs**: you cannot reproduce this outside Citrix, because the private key never leaves the locked-down Windows environment.
+
+---
+
+✅ **Bottom line**:
+Without the ability to run a proxy inside Citrix, your only realistic paths are:
+
+1. Confirm it’s Kerberos and try to get tickets on Linux (best case).
+2. If it’s PKI certs → you cannot authenticate from Linux, because the private key is non-exportable and tied to Windows.
+
+---
+
+Would you like me to outline a **step-by-step Kerberos test from Linux** (to see if you can at least get partway), so you can confirm whether this is even possible on your network?
